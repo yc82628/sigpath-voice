@@ -1,8 +1,13 @@
 # SigPath Voice
 
+[![Tests](https://github.com/yc82628/sigpath-voice/actions/workflows/test.yml/badge.svg)](https://github.com/yc82628/sigpath-voice/actions/workflows/test.yml)
+[![Demo](https://github.com/yc82628/sigpath-voice/actions/workflows/pages.yml/badge.svg)](https://yc82628.github.io/sigpath-voice/)
+
 A phone support agent for [SigPath](https://sigpath.vercel.app) orders, built on Retell AI. Callers can check an order, report a problem, or ask for a person.
 
 I built it to learn how Retell agents are put together and debugged, the way a support engineer would set one up for a customer. The orders are fixtures. I'm a 2026 CS graduate and this is a demo: it hasn't taken real customer calls, and I haven't run telephony in production. So far I've tested it with the simulator in this repo, not against a live Retell account.
+
+**[Open the call log demo](https://yc82628.github.io/sigpath-voice/)**. It shows 6 simulated calls, rebuilt on every push by running the simulator against the real server code. Click a call to see its flags, tool calls and transcript.
 
 ![Call log with a timed-out tool call flagged](docs/screenshots/call-log.png)
 
@@ -154,7 +159,10 @@ src/analysis.ts        builds the call view and the flags
 src/web/call.ts        browser web call, bundled to public/build/call.js
 public/                web call page and call log
 scripts/setup-agent.ts creates or updates the Retell LLM and agent
-scripts/simulate.ts    sends signed fake calls to the local server
+scripts/scenarios.ts   the 6 fake calls
+scripts/simulate.ts    plays them against the local server
+scripts/build-demo.ts  builds the static demo in site/ for GitHub Pages
+.github/workflows/     tests on every push, and the demo deploy
 docs/incidents/        write-ups for each simulated incident
 test/                  vitest
 ```

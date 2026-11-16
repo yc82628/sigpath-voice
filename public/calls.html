@@ -4,17 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Call Log</title>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
     <header>
       <div>
         <h1>Call log</h1>
-        <p class="muted">Built from Retell's webhooks and this server's tool logs. Refreshes every 5 seconds.</p>
+        <p class="muted" id="subtitle">Built from Retell's webhooks and this server's tool logs. Refreshes every 5 seconds.</p>
       </div>
-      <a href="/">Back to the web call</a>
+      <a href="./" id="back">Back to the web call</a>
     </header>
+
+    <p class="card muted" id="static-note" hidden>
+      This is a static copy of the call log for <a href="https://github.com/yc82628/sigpath-voice">SigPath Voice</a>.
+      The 6 calls come from the simulator, which signs requests the way Retell does and sends them to the real server code.
+      Live web calls need the server running, so they aren't part of this page.
+    </p>
 
     <section class="card">
       <div class="table-wrap">
@@ -36,6 +42,19 @@
     const empty = document.querySelector("#empty");
     const detail = document.querySelector("#detail");
 
+    // The GitHub Pages demo is this same page with data-mode="static" and the
+    // API answers saved as JSON files next to it (see scripts/build-demo.ts).
+    const STATIC = document.documentElement.dataset.mode === "static";
+    const listUrl = STATIC ? "data/calls.json" : "/api/calls";
+    const detailUrl = (id) => (STATIC ? `data/calls/${encodeURIComponent(id)}.json` : `/api/calls/${encodeURIComponent(id)}`);
+    if (STATIC) {
+      document.querySelector("#subtitle").textContent = "Built from Retell-style webhooks and the server's tool logs.";
+      const back = document.querySelector("#back");
+      back.textContent = "Code on GitHub";
+      back.href = "https://github.com/yc82628/sigpath-voice";
+      document.querySelector("#static-note").hidden = false;
+    }
+
     function el(tag, attrs = {}, ...children) {
       const node = document.createElement(tag);
       for (const [k, v] of Object.entries(attrs)) {
@@ -54,7 +73,7 @@
     const pill = (level, text) => el("span", { class: `pill pill-${level}` }, text);
 
     async function loadList() {
-      const { calls } = await fetch("/api/calls").then((r) => r.json());
+      const { calls } = await fetch(listUrl).then((r) => r.json());
       empty.hidden = calls.length > 0;
       const selected = decodeURIComponent(location.hash.slice(1));
       rows.replaceChildren(
@@ -87,7 +106,7 @@
     async function loadDetail() {
       const id = decodeURIComponent(location.hash.slice(1));
       if (!id) { detail.hidden = true; return; }
-      const res = await fetch(`/api/calls/${encodeURIComponent(id)}`);
+      const res = await fetch(detailUrl(id));
       if (!res.ok) { detail.hidden = true; return; }
       const c = await res.json();
       const a = c.analysis ?? {};
@@ -153,7 +172,7 @@
 
     addEventListener("hashchange", refresh);
     refresh();
-    setInterval(refresh, 5000);
+    if (!STATIC) setInterval(refresh, 5000);
   </script>
 </body>
 </html>
