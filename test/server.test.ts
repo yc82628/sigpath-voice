@@ -12,7 +12,7 @@ let store: Store;
 
 beforeAll(async () => {
   store = new Store(null);
-  const app = createApp({ apiKey: API_KEY, store, publicKey: "public_key_test", agentId: "agent_test", publicDir: "public" });
+  const app = createApp({ apiKey: API_KEY, store, publicKey: "public_key_test", agentId: "agent_test", publicDir: "public", slowOrderDelayMs: 50 });
   server = app.listen(0);
   await new Promise((r) => server.once("listening", r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -94,6 +94,12 @@ describe("lookup_order", () => {
     const logs = store.toolCallsFor("call_abc");
     expect(logs).toHaveLength(1);
     expect(logs[0]).toMatchObject({ tool: "lookup_order", status: 503, ok: false });
+  });
+
+  it("answers the slow order after its delay", async () => {
+    const res = await signedPost("/tools/lookup_order", { name: "lookup_order", call, args: { order_id: "SP-1098" } });
+    expect(await res.json()).toMatchObject({ found: true, order_id: "SP-1098" });
+    expect(store.toolCallsFor("call_abc")[0].durationMs).toBeGreaterThanOrEqual(45);
   });
 
   it("returns 404 for an unknown tool", async () => {

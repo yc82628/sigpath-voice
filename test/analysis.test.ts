@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { toolCallsFromTranscript, unverifiedOrderMentions } from "../src/analysis";
-import { buildAgentParams, buildLlmParams } from "../src/agent/config";
+import { buildCallView, promisedTransferWithoutTool, rejectedOrderIds, toolCallsFromTranscript, unverifiedOrderMentions } from "../src/analysis";
+import { buildAgentParams, buildLlmParams, buildPrompt } from "../src/agent/config";
+import { Store } from "../src/store";
 
 describe("unverifiedOrderMentions", () => {
   it("is empty when the agent only mentions orders it looked up", () => {
@@ -53,5 +54,72 @@ describe("agent config", () => {
     const names = (n?: string) => buildLlmParams({ publicBaseUrl: "https://x", transferNumber: n }).general_tools!.map((t) => t.name);
     expect(names()).not.toContain("transfer_to_human");
     expect(names("+4930123456")).toContain("transfer_to_human");
+  });
+});
+
+describe("promisedTransferWithoutTool", () => {
+  it("flags a promised transfer with no transfer tool call", () => {
+    expect(promisedTransferWithoutTool([{ role: "agent", content: "Let me connect you to a team member." }])).toBe(true);
+  });
+
+  it("is fine when the transfer tool was called", () => {
+    expect(
+      promisedTransferWithoutTool([
+        { role: "agent", content: "I'm transferring you now." },
+        { role: "tool_call_invocation", tool_call_id: "1", name: "transfer_to_human", arguments: "{}" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("ignores calls where nobody mentioned a transfer", () => {
+    expect(promisedTransferWithoutTool([{ role: "agent", content: "Your order shipped." }])).toBe(false);
+  });
+});
+
+describe("rejectedOrderIds", () => {
+  it("lists what lookup_order couldn't read", () => {
+    expect(
+      rejectedOrderIds([
+        { role: "tool_call_invocation", tool_call_id: "1", name: "lookup_order", arguments: '{"order_id":"S B one oh four two"}' },
+        { role: "tool_call_result", tool_call_id: "1", content: '{"found":false,"reason":"invalid_order_id"}', successful: true },
+        { role: "tool_call_invocation", tool_call_id: "2", name: "lookup_order", arguments: '{"order_id":"1042"}' },
+        { role: "tool_call_result", tool_call_id: "2", content: '{"found":true,"order_id":"SP-1042"}', successful: true },
+      ]),
+    ).toEqual(["S B one oh four two"]);
+  });
+});
+
+describe("buildCallView flags from the server log", () => {
+  const log = (durationMs: number, at: number) => ({
+    callId: "c1", tool: "lookup_order", args: { order_id: "SP-1098" }, status: 200, ok: true, durationMs, result: {}, at,
+  });
+
+  it("flags a tool slower than the timeout and a repeated request", () => {
+    const store = new Store(null);
+    store.recordEvent("call_started", { call_id: "c1" });
+    store.recordToolCall(log(9001, 1));
+    store.recordToolCall(log(9002, 2));
+    const messages = buildCallView("c1", store).flags.map((f) => f.message).join("\n");
+    expect(messages).toContain("past the 8000 ms timeout");
+    expect(messages).toContain("same lookup_order request 2 times");
+  });
+
+  it("flags a call with tool requests but no webhooks", () => {
+    const store = new Store(null);
+    store.recordToolCall(log(5, 1));
+    expect(store.callIds()).toEqual(["c1"]);
+    expect(buildCallView("c1", store).flags[0].message).toContain("no webhooks");
+  });
+});
+
+describe("buildPrompt", () => {
+  it("tells the agent it can't transfer when there's no transfer tool", () => {
+    const prompt = buildPrompt({ canTransfer: false });
+    expect(prompt).toContain("You can't transfer calls");
+    expect(prompt).not.toContain("transfer_to_human");
+  });
+
+  it("names the transfer tool when there is one", () => {
+    expect(buildPrompt({ canTransfer: true })).toContain("transfer_to_human");
   });
 });

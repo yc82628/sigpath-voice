@@ -93,33 +93,17 @@
       const a = c.analysis ?? {};
       const custom = a.custom_analysis_data ?? {};
 
-      const serverTiming = new Map();
-      for (const t of c.serverToolCalls) {
-        if (!serverTiming.has(t.tool)) serverTiming.set(t.tool, []);
-        serverTiming.get(t.tool).push(t);
-      }
-
       const toolList = c.toolCalls.length
         ? c.toolCalls.map((t) => {
-            const timing = serverTiming.get(t.name)?.shift();
             return el("div", { class: "tool" },
               el("div", { class: "tool-head" },
                 el("b", { class: "mono" }, t.name),
                 t.successful === false ? pill("error", "failed") : t.successful === true ? pill("ok", "ok") : pill("warn", "no result"),
-                timing ? el("span", { class: "muted" }, `${timing.durationMs} ms on our server, HTTP ${timing.status}`) : null,
               ),
               el("pre", {}, `args: ${pretty(t.arguments)}\n\nresult: ${pretty(t.result)}`),
             );
           })
-        : c.serverToolCalls.map((t) =>
-            el("div", { class: "tool" },
-              el("div", { class: "tool-head" },
-                el("b", { class: "mono" }, t.tool),
-                t.ok ? pill("ok", `HTTP ${t.status}`) : pill("error", `HTTP ${t.status}`),
-                el("span", { class: "muted" }, `${t.durationMs} ms (from server log, transcript not in yet)`),
-              ),
-              el("pre", {}, `args: ${JSON.stringify(t.args, null, 2)}\n\nresult: ${JSON.stringify(t.result, null, 2)}`),
-            ));
+        : [];
 
       detail.replaceChildren(...[
         el("h2", { style: "margin-top:0" }, "Call ", el("span", { class: "mono" }, c.callId)),
@@ -140,8 +124,22 @@
         el("h2", {}, "Post-call analysis"),
         a.call_summary ? el("p", {}, a.call_summary) : el("p", { class: "muted" }, "Not in yet. It arrives with the call_analyzed webhook."),
         Object.keys(custom).length ? el("pre", {}, JSON.stringify({ call_successful: a.call_successful, ...custom }, null, 2)) : null,
-        el("h2", {}, `Tool calls (${c.toolCalls.length || c.serverToolCalls.length})`),
-        toolList.length ? toolList : el("p", { class: "muted" }, "None."),
+        el("h2", {}, `Tool calls in the transcript (${c.toolCalls.length})`),
+        toolList.length ? toolList : el("p", { class: "muted" }, c.events.includes("call_ended") ? "None." : "Not in yet. They arrive with the call_ended webhook."),
+        c.serverToolCalls.length ? [
+          el("h2", {}, `Requests this server got (${c.serverToolCalls.length})`),
+          el("p", { class: "muted" }, "Every tool request, including retries and ones Retell stopped waiting for."),
+          el("div", { class: "table-wrap" }, el("table", { class: "requests" },
+            el("thead", {}, el("tr", {}, el("th", {}, "Time"), el("th", {}, "Tool"), el("th", {}, "Args"), el("th", {}, "HTTP"), el("th", {}, "Took"))),
+            el("tbody", {}, c.serverToolCalls.map((t) => el("tr", {},
+              el("td", {}, new Date(t.at).toLocaleTimeString()),
+              el("td", { class: "mono" }, t.tool),
+              el("td", { class: "mono" }, JSON.stringify(t.args)),
+              el("td", {}, t.ok ? pill("ok", t.status) : pill("error", t.status)),
+              el("td", {}, t.durationMs >= 8000 ? pill("error", fmtMs(t.durationMs)) : fmtMs(t.durationMs)),
+            ))),
+          )),
+        ] : null,
         c.tickets.length ? [el("h2", {}, "Tickets"), el("pre", {}, c.tickets.map((t) => `${t.id}  ${t.orderId}  ${t.category}  ${t.description}`).join("\n"))] : null,
         el("h2", {}, "Transcript"),
         c.transcript ? el("pre", {}, c.transcript) : el("p", { class: "muted" }, "Not in yet. It arrives with the call_ended webhook."),

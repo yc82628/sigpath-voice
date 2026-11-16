@@ -2,7 +2,9 @@
 
 A phone support agent for [SigPath](https://sigpath.vercel.app) orders, built on Retell AI. Callers can check an order, report a problem, or ask for a person.
 
-I built it to learn how Retell agents are put together and debugged, the way a support engineer would set one up for a customer. The orders are fixtures. I'm a 2026 CS graduate and this is a demo: it hasn't taken real customer calls, and I haven't run telephony in production.
+I built it to learn how Retell agents are put together and debugged, the way a support engineer would set one up for a customer. The orders are fixtures. I'm a 2026 CS graduate and this is a demo: it hasn't taken real customer calls, and I haven't run telephony in production. So far I've tested it with the simulator in this repo, not against a live Retell account.
+
+![Call log with a timed-out tool call flagged](docs/screenshots/call-log.png)
 
 ## What it covers
 
@@ -12,7 +14,7 @@ I built it to learn how Retell agents are put together and debugged, the way a s
 | Hook a customer's API up to the agent | [src/app.ts](src/app.ts) `POST /tools/:name`, signed with `X-Retell-Signature` |
 | Webhooks and post-call analysis | `POST /webhooks/retell`, stored once per call and event |
 | Debug a call: latency, failed tools, hallucinations, transcripts | [public/calls.html](public/calls.html) and [src/analysis.ts](src/analysis.ts) |
-| Write it up afterwards | [docs/incident-example.md](docs/incident-example.md) |
+| Write it up afterwards | 5 incident write-ups in [docs/incidents](docs/incidents) |
 
 ## How it fits together
 
@@ -34,7 +36,7 @@ A few choices worth knowing about:
 - **Retries are safe.** Retell retries a tool when `max_retry` is above 0, and a webhook up to 3 times. Ticket ids come from a hash of call, order and category, and webhooks are stored once per `(call_id, event)`, so a retry never makes a second ticket or a second row.
 - **Webhooks answer 204 right away.** Retell gives up after about 10 seconds.
 - **Spoken order ids get cleaned up.** "S P one oh four two", "double four" and "1042" all become `SP-1042`.
-- **SP-1099 always fails** with a 503, so there's a broken path to look at on purpose.
+- **2 orders break on purpose.** SP-1099 always fails with a 503. SP-1098 takes 9 s, past the 8 s tool timeout.
 
 ## Run it
 
@@ -62,7 +64,18 @@ npm start
 npm run simulate
 ```
 
-Open http://localhost:3000/calls.html. You'll see a normal call and an incident call with a failed tool and a flagged hallucination.
+Open http://localhost:3000/calls.html. The simulator plays 6 calls, each signed like a real Retell request:
+
+| Scenario | What goes wrong |
+| --- | --- |
+| `ok` | Nothing. A normal status check. |
+| `hallucination` | The order service returns 503 and the agent makes up a delivery date anyway. |
+| `slow` | The order API takes 9 s, Retell times out at 8 s and retries. Takes about 20 s to run. |
+| `no-webhooks` | Tool requests arrive but webhooks don't, like an agent with an old tunnel URL. |
+| `transfer-promise` | The agent says "let me connect you" on a line with no transfer tool. |
+| `misheard` | Speech-to-text hears "S B" for "S P". The agent asks for the digits and recovers. |
+
+Run one with `npm run simulate -- slow`.
 
 **3. Sign up for Retell**
 
@@ -92,9 +105,30 @@ It creates the LLM and the agent and prints `RETELL_LLM_ID` and `RETELL_AGENT_ID
 npm start
 ```
 
+![The web call page](docs/screenshots/web-call.png)
+
 Open http://localhost:3000, click **Call SigPath support** and allow the microphone. Ask about SP-1042. When you hang up, the call shows up in the call log within a few seconds, and the post-call analysis shows up a bit after that.
 
 Transfers need a real phone call, so they wait until there's a number on the account and `TRANSFER_NUMBER` is set.
+
+## Incidents
+
+Each simulator scenario has a write-up in the format I'd send a customer: summary, impact, timeline, root cause, fix.
+
+1. [Agent gave a shipping date it never looked up](docs/incidents/01-made-up-status.md)
+2. [Order lookup timed out and the caller waited 17 seconds](docs/incidents/02-tool-timeout.md)
+3. [Calls worked but never showed up in the call history](docs/incidents/03-missing-webhooks.md)
+4. [Agent promised a transfer it couldn't make](docs/incidents/04-promised-transfer.md)
+5. [Speech-to-text heard "S B" instead of "S P"](docs/incidents/05-misheard-order-id.md)
+
+2 of them changed the code. The prompt is now built from the same config as the tools, so it never mentions a transfer the agent can't make (04). Tool errors tell the agent to ask for just the digits instead of guessing (05).
+
+<details>
+<summary>What the call log shows for incident 01</summary>
+
+![Call detail for the made-up status incident](docs/screenshots/incident-detail.png)
+
+</details>
 
 ## Debugging playbook
 
@@ -102,10 +136,10 @@ What I check, roughly in order, when a call goes wrong:
 
 1. **Did the webhooks arrive?** The call log lists the events it got. If tool calls show up but no webhooks, the agent's `webhook_url` is wrong (usually an old tunnel URL).
 2. **Did a tool fail?** Failed tools are red, with the HTTP status and the result the LLM saw. A 401 in the server log means the signature check failed: wrong API key in `.env`, or something rewrote the body on the way in.
-3. **Was it slow?** Compare end-to-end p90 with how long the tool took on my server. If the server was fast and the call was still slow, look at LLM latency next. To reproduce a slow API, set `TOOL_DELAY_MS=6000`.
+3. **Was it slow?** Compare end-to-end p90 with how long the tool took on my server. A tool past its timeout is red: even if my server logged HTTP 200, the caller got nothing. If the server was fast and the call was still slow, look at LLM latency next. To reproduce a slow API, set `TOOL_DELAY_MS=6000`.
 4. **Did the agent make something up?** The log flags order ids the agent said without a successful lookup. Then I read the transcript around that turn and tighten the prompt or the tool's error message.
 5. **What did post-call analysis say?** `call_successful`, `resolved` and `issue_category` show whether this is one call or a pattern.
-6. **Write it up.** Template and example: [docs/incident-example.md](docs/incident-example.md).
+6. **Write it up.** Examples in [docs/incidents](docs/incidents).
 
 For anything the local log doesn't show, the call detail links to Retell's public log for that call.
 
@@ -121,5 +155,6 @@ src/web/call.ts        browser web call, bundled to public/build/call.js
 public/                web call page and call log
 scripts/setup-agent.ts creates or updates the Retell LLM and agent
 scripts/simulate.ts    sends signed fake calls to the local server
+docs/incidents/        write-ups for each simulated incident
 test/                  vitest
 ```

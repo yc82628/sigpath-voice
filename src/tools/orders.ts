@@ -53,6 +53,17 @@ export const ORDERS: Record<string, Order> = {
     trackingNumber: "H1002345678901",
     deliveredOn: "2026-11-06",
   },
+  "SP-1098": {
+    id: "SP-1098",
+    item: "Bosch cordless drill",
+    shop: "Werkzeug Brandt",
+    amountUsdc: 99,
+    status: "shipped",
+    placedOn: "2026-11-12",
+    carrier: "DPD",
+    trackingNumber: "01234567890123",
+    estimatedDelivery: "2026-11-17",
+  },
   "SP-1045": {
     id: "SP-1045",
     item: "Philips Hue starter kit",
@@ -67,6 +78,11 @@ export const ORDERS: Record<string, Order> = {
 // SP-1099 makes the order lookup fail with a 503, so you can see what a
 // failed tool call looks like in the transcript and the dashboard.
 export const FAILING_ORDER_ID = "SP-1099";
+
+// SP-1098 answers, but only after 9 seconds. The agent's tool timeout is
+// 8 seconds, so Retell gives up first. Used by the "slow" simulator scenario.
+export const SLOW_ORDER_ID = "SP-1098";
+export const SLOW_ORDER_DELAY_MS = 9000;
 
 const NUMBER_WORDS: Record<string, string> = {
   zero: "0", oh: "0", o: "0",

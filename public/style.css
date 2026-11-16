@@ -82,6 +82,9 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { font-weight: 600; color: var(--muted); font-size: 13px; }
 tbody tr { cursor: pointer; }
+table.requests tbody tr { cursor: default; }
+table.requests tbody tr:hover { background: none; }
+table.requests td:first-child, table.requests td:nth-child(4), table.requests td:last-child { white-space: nowrap; }
 tbody tr:hover, tbody tr.selected { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .table-wrap { overflow-x: auto; }
 

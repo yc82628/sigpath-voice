@@ -14,6 +14,8 @@ export interface AppOptions {
   agentId?: string;
   /** Adds a delay to tool responses, to reproduce a slow-API incident. */
   toolDelayMs?: number;
+  /** How long the slow fixture order SP-1098 takes. Defaults to 9 s. */
+  slowOrderDelayMs?: number;
   publicDir?: string;
 }
 
@@ -63,17 +65,17 @@ export function createApp(opts: AppOptions) {
     } else {
       if (opts.toolDelayMs) await new Promise((r) => setTimeout(r, opts.toolDelayMs));
       try {
-        ({ status, body } = handler(args ?? {}, { callId, store: opts.store }));
+        ({ status, body } = await handler(args ?? {}, { callId, store: opts.store, slowOrderDelayMs: opts.slowOrderDelayMs }));
       } catch (err) {
         console.error(`[tool] ${toolName} crashed`, err);
         status = 500;
-        body = { error: "internal_error", instruction: "Apologise and offer to transfer the caller to a person." };
+        body = { error: "internal_error", instruction: "Apologise and offer to open a ticket." };
       }
     }
 
     let text = JSON.stringify(body);
     if (text.length > MAX_TOOL_RESULT_CHARS) {
-      text = JSON.stringify({ error: "result_too_large", instruction: "Tell the caller you need a moment and offer a transfer." });
+      text = JSON.stringify({ error: "result_too_large", instruction: "Apologise and offer to open a ticket." });
       status = 500;
     }
     const durationMs = Date.now() - started;
@@ -113,7 +115,7 @@ export function createApp(opts: AppOptions) {
         durationMs: view.durationMs,
         disconnectionReason: view.disconnectionReason,
         status: view.status,
-        toolCalls: view.toolCalls.length || view.serverToolCalls.length,
+        toolCalls: Math.max(view.toolCalls.length, view.serverToolCalls.length),
         summary: (view.analysis?.call_summary as string | undefined) ?? null,
         flags: view.flags.length,
         worstFlag: view.flags.some((f) => f.level === "error") ? "error" : view.flags.length ? "warn" : null,

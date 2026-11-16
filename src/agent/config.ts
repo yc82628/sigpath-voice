@@ -5,7 +5,19 @@ import { PROBLEM_CATEGORIES } from "../tools/problems";
 // The agent's prompt, tools and analysis settings live in code so changes are
 // reviewable in a diff and can be re-applied with `npm run setup-agent`.
 
-export const GENERAL_PROMPT = `## Identity
+export const TOOL_TIMEOUT_MS = 8000;
+
+export function buildPrompt({ canTransfer }: { canTransfer: boolean }): string {
+  // Only mention transfers when the agent actually has the tool. Telling it
+  // "transfer if you can" made it promise transfers it couldn't do.
+  const transferAbility = canTransfer
+    ? "3. Transfer the caller to a person with transfer_to_human."
+    : "3. You can't transfer calls on this line. Never say you'll connect the caller to a person.";
+  const escalation = canTransfer
+    ? "- If the caller asks for a person, is upset after two tries, or asks about anything other than an existing order (refund policy disputes, legal, account security), use transfer_to_human."
+    : '- If the caller asks for a person, is upset after two tries, or asks about anything other than an existing order, say a team member will follow up and open a ticket with category "other".';
+
+  return `## Identity
 You're the phone support agent for SigPath, a shopping site where buyers pay in USDC and the money sits in escrow until they confirm delivery. You help with existing orders only.
 
 ## Style
@@ -16,18 +28,19 @@ You're the phone support agent for SigPath, a shopping site where buyers pay in 
 ## What you can do
 1. Check an order's status with lookup_order.
 2. Open a ticket for a problem with report_problem.
-3. Transfer the caller to a person with transfer_to_human, if that tool is available.
+${transferAbility}
 4. End the call with end_call once the caller is done.
 
 ## Rules
 - Never state an order's status, item, carrier or date unless lookup_order returned it in this call. If you don't have it, say you'll check, then call the tool.
-- Order numbers look like SP followed by 4 digits. If the caller gives something else, ask them to repeat it.
+- Order numbers look like SP followed by 4 digits. If lookup_order says the number is invalid, ask for just the 4 digits. Don't guess them.
 - If a tool result has an "instruction" field, follow it.
-- If lookup_order fails or the system isn't responding, don't guess. Apologise, then offer to open a ticket or transfer them.
+- If lookup_order fails, times out or the system isn't responding, don't guess. Apologise and offer to open a ticket.
 - Before calling report_problem, confirm the order number and pick the category that fits: ${PROBLEM_CATEGORIES.join(", ")}. Read the ticket id back to the caller.
-- If the caller asks for a person, is upset after two tries, or asks about anything other than an existing order (refund policy disputes, legal, account security), transfer them if you can. If you can't, open a ticket with category "other".
+${escalation}
 - Don't ask for or repeat wallet addresses, card numbers or passwords.
 - This is a demo line with test orders. If asked, say so.`;
+}
 
 export const BEGIN_MESSAGE = "Hi, you've reached SigPath support. I can check an order or help with a problem. What's your order number?";
 
@@ -60,7 +73,7 @@ export function buildTools({ publicBaseUrl, transferNumber }: BuildOptions): Too
       speak_during_execution: true,
       speak_after_execution: true,
       execution_message_description: "Tell the caller you're pulling up the order, in a few words.",
-      timeout_ms: 8000,
+      timeout_ms: TOOL_TIMEOUT_MS,
       max_retry: 1,
     },
     {
@@ -85,7 +98,7 @@ export function buildTools({ publicBaseUrl, transferNumber }: BuildOptions): Too
       speak_during_execution: true,
       speak_after_execution: true,
       execution_message_description: "Tell the caller you're opening a ticket.",
-      timeout_ms: 8000,
+      timeout_ms: TOOL_TIMEOUT_MS,
       // Safe to retry: the server derives the ticket id from call, order and
       // category, so a retry returns the same ticket.
       max_retry: 1,
@@ -113,7 +126,7 @@ export function buildTools({ publicBaseUrl, transferNumber }: BuildOptions): Too
 
 export function buildLlmParams(opts: BuildOptions): LlmCreateParams {
   return {
-    general_prompt: GENERAL_PROMPT,
+    general_prompt: buildPrompt({ canTransfer: Boolean(opts.transferNumber) }),
     begin_message: BEGIN_MESSAGE,
     start_speaker: "agent",
     general_tools: buildTools(opts),
