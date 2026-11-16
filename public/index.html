@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SigPath Voice</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>SigPath Voice</h1>
+        <p class="muted">Phone support for SigPath orders, running on Retell AI. This is a demo with test orders.</p>
+      </div>
+      <a href="/calls.html">Call log</a>
+    </header>
+
+    <section class="card">
+      <button id="call" type="button">Call SigPath support</button>
+      <p id="status" class="muted">Your browser will ask for microphone access.</p>
+      <a id="call-link" hidden>See this call in the log</a>
+      <div id="transcript" aria-live="polite"></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin-top:0">Things to try</h2>
+      <ul class="orders">
+        <li><b>SP-1042</b>: shipped, money still in escrow</li>
+        <li><b>SP-1043</b>: paid, waiting for the shop to ship</li>
+        <li><b>SP-1044</b>: delivered, escrow released</li>
+        <li><b>SP-1045</b>: refunded</li>
+        <li><b>SP-1099</b>: the order service fails, to see how the agent handles it</li>
+        <li>Say an order number the way people do: "S P one oh four two"</li>
+        <li>Report a problem: "my order SP-1044 arrived broken"</li>
+        <li>Ask for a person (works if a transfer number is set up)</li>
+      </ul>
+    </section>
+  </main>
+  <script type="module" src="/build/call.js"></script>
+</body>
+</html>

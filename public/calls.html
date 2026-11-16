@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Call Log</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Call log</h1>
+        <p class="muted">Built from Retell's webhooks and this server's tool logs. Refreshes every 5 seconds.</p>
+      </div>
+      <a href="/">Back to the web call</a>
+    </header>
+
+    <section class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Started</th><th>Call</th><th>Duration</th><th>End reason</th><th>Tools</th><th>Flags</th></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p id="empty" class="muted" hidden>No calls yet. Make a web call, or run <code>npm run simulate</code>.</p>
+    </section>
+
+    <section class="card" id="detail" hidden></section>
+  </main>
+
+  <script type="module">
+    const rows = document.querySelector("#rows");
+    const empty = document.querySelector("#empty");
+    const detail = document.querySelector("#detail");
+
+    function el(tag, attrs = {}, ...children) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (k === "class") node.className = v;
+        else node.setAttribute(k, v);
+      }
+      for (const c of children.flat()) {
+        if (c == null || c === false) continue;
+        node.append(c instanceof Node ? c : String(c));
+      }
+      return node;
+    }
+
+    const fmtTime = (ts) => (ts ? new Date(ts).toLocaleString() : "?");
+    const fmtMs = (ms) => (ms == null ? "?" : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`);
+    const pill = (level, text) => el("span", { class: `pill pill-${level}` }, text);
+
+    async function loadList() {
+      const { calls } = await fetch("/api/calls").then((r) => r.json());
+      empty.hidden = calls.length > 0;
+      const selected = decodeURIComponent(location.hash.slice(1));
+      rows.replaceChildren(
+        ...calls.map((c) => {
+          const tr = el(
+            "tr",
+            { class: c.callId === selected ? "selected" : "" },
+            el("td", {}, fmtTime(c.startTimestamp)),
+            el("td", { class: "mono" }, c.callId),
+            el("td", {}, fmtMs(c.durationMs)),
+            el("td", {}, c.disconnectionReason ?? c.status ?? "?"),
+            el("td", {}, c.toolCalls),
+            el("td", {}, c.worstFlag ? pill(c.worstFlag, `${c.flags}`) : pill("ok", "ok")),
+          );
+          tr.addEventListener("click", () => { location.hash = encodeURIComponent(c.callId); });
+          return tr;
+        }),
+      );
+      if (!selected && calls[0]) location.hash = encodeURIComponent(calls[0].callId);
+    }
+
+    function stat(value, label) {
+      return el("div", { class: "stat" }, el("b", {}, value), el("span", {}, label));
+    }
+
+    function pretty(text) {
+      try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text ?? ""; }
+    }
+
+    async function loadDetail() {
+      const id = decodeURIComponent(location.hash.slice(1));
+      if (!id) { detail.hidden = true; return; }
+      const res = await fetch(`/api/calls/${encodeURIComponent(id)}`);
+      if (!res.ok) { detail.hidden = true; return; }
+      const c = await res.json();
+      const a = c.analysis ?? {};
+      const custom = a.custom_analysis_data ?? {};
+
+      const serverTiming = new Map();
+      for (const t of c.serverToolCalls) {
+        if (!serverTiming.has(t.tool)) serverTiming.set(t.tool, []);
+        serverTiming.get(t.tool).push(t);
+      }
+
+      const toolList = c.toolCalls.length
+        ? c.toolCalls.map((t) => {
+            const timing = serverTiming.get(t.name)?.shift();
+            return el("div", { class: "tool" },
+              el("div", { class: "tool-head" },
+                el("b", { class: "mono" }, t.name),
+                t.successful === false ? pill("error", "failed") : t.successful === true ? pill("ok", "ok") : pill("warn", "no result"),
+                timing ? el("span", { class: "muted" }, `${timing.durationMs} ms on our server, HTTP ${timing.status}`) : null,
+              ),
+              el("pre", {}, `args: ${pretty(t.arguments)}\n\nresult: ${pretty(t.result)}`),
+            );
+          })
+        : c.serverToolCalls.map((t) =>
+            el("div", { class: "tool" },
+              el("div", { class: "tool-head" },
+                el("b", { class: "mono" }, t.tool),
+                t.ok ? pill("ok", `HTTP ${t.status}`) : pill("error", `HTTP ${t.status}`),
+                el("span", { class: "muted" }, `${t.durationMs} ms (from server log, transcript not in yet)`),
+              ),
+              el("pre", {}, `args: ${JSON.stringify(t.args, null, 2)}\n\nresult: ${JSON.stringify(t.result, null, 2)}`),
+            ));
+
+      detail.replaceChildren(...[
+        el("h2", { style: "margin-top:0" }, "Call ", el("span", { class: "mono" }, c.callId)),
+        el("p", { class: "muted" },
+          `Events received: ${c.events.join(", ") || "none"}`,
+          c.publicLogUrl ? [" · ", el("a", { href: c.publicLogUrl, target: "_blank", rel: "noopener" }, "Retell public log")] : null,
+          c.recordingUrl ? [" · ", el("a", { href: c.recordingUrl, target: "_blank", rel: "noopener" }, "Recording")] : null,
+        ),
+        c.flags.length ? el("div", {}, c.flags.map((f) => el("p", { class: `flag flag-${f.level}` }, f.message))) : null,
+        el("div", { class: "stats" },
+          stat(fmtMs(c.durationMs), "duration"),
+          stat(c.disconnectionReason ?? "?", "end reason"),
+          stat(fmtMs(c.latency.e2e?.p50), "end-to-end p50"),
+          stat(fmtMs(c.latency.e2e?.p90), "end-to-end p90"),
+          stat(fmtMs(c.latency.llm?.p50), "LLM p50"),
+          stat(a.user_sentiment ?? "?", "sentiment"),
+        ),
+        el("h2", {}, "Post-call analysis"),
+        a.call_summary ? el("p", {}, a.call_summary) : el("p", { class: "muted" }, "Not in yet. It arrives with the call_analyzed webhook."),
+        Object.keys(custom).length ? el("pre", {}, JSON.stringify({ call_successful: a.call_successful, ...custom }, null, 2)) : null,
+        el("h2", {}, `Tool calls (${c.toolCalls.length || c.serverToolCalls.length})`),
+        toolList.length ? toolList : el("p", { class: "muted" }, "None."),
+        c.tickets.length ? [el("h2", {}, "Tickets"), el("pre", {}, c.tickets.map((t) => `${t.id}  ${t.orderId}  ${t.category}  ${t.description}`).join("\n"))] : null,
+        el("h2", {}, "Transcript"),
+        c.transcript ? el("pre", {}, c.transcript) : el("p", { class: "muted" }, "Not in yet. It arrives with the call_ended webhook."),
+      ].flat().filter(Boolean));
+      detail.hidden = false;
+    }
+
+    async function refresh() {
+      try { await loadList(); await loadDetail(); } catch (err) { console.error(err); }
+    }
+
+    addEventListener("hashchange", refresh);
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>
